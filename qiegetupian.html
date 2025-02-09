@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>图片切片工具</title>
+    <meta charset="utf-8">
+    <style>
+        /* 前面的样式保持不变 */
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px;
+            text-align: center;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            border: 2px dashed #ccc;
+            padding: 50px;
+            border-radius: 12px;
+            margin-top: 30px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            font-size: 36px;
+            margin-bottom: 40px;
+        }
+
+        .notice {
+            background-color: #f8f8f8;
+            border-left: 4px solid #4CAF50;
+            padding: 20px;
+            margin: 20px 0 40px 0;
+            text-align: left;
+            color: #333;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        .form-group {
+            margin: 30px 0;
+        }
+
+        label {
+            font-size: 20px;
+            color: #333;
+            display: block;
+            margin-bottom: 15px;
+        }
+
+        input[type="file"] {
+            padding: 15px;
+            margin: 10px auto;
+            width: 400px;
+            font-size: 16px;
+        }
+
+        input[type="number"] {
+            width: 120px;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 40px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s ease;
+            min-width: 160px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #resetButton {
+            background-color: #666;
+        }
+
+        #resetButton:hover {
+            background-color: #555;
+        }
+
+        #loading {
+            display: none;
+            margin-top: 20px;
+            font-size: 20px;
+            color: #666;
+        }
+
+        .selected-files {
+            margin-top: 15px;
+            color: #666;
+            font-size: 16px;
+            text-align: left;
+            padding-left: 20px;
+        }
+
+        .file-list {
+            list-style-type: none;
+            padding: 0;
+            margin: 10px 0;
+        }
+
+        .file-list li {
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .file-list li .delete-btn {
+            color: #ff4444;
+            cursor: pointer;
+            padding: 2px 8px;
+            border: none;
+            background: none;
+            font-size: 16px;
+        }
+
+        .file-list li .delete-btn:hover {
+            color: #cc0000;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+    <h1>图片切片工具</h1>
+    <div class="container">
+        <div class="notice">
+            注意：为了确保内容的连续性，每张切割后的图片都会包含前一部分的内容（约1-2行重叠），以防止信息丢失。
+        </div>
+
+        <div class="form-group">
+            <label>选择图片文件（可多选）</label>
+            <input type="file" accept="image/*" multiple id="fileInput">
+            <div class="selected-files">
+                <ul class="file-list" id="fileList"></ul>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>重叠像素</label>
+            <input type="number" value="50" min="0" id="overlapInput">
+        </div>
+
+        <div class="buttons">
+            <button id="processButton" disabled>切片并导出</button>
+            <button id="resetButton" onclick="resetForm()">重置</button>
+        </div>
+    </div>
+    <div id="loading">处理中，请稍候...</div>
+
+    <script>
+        let selectedFiles = new Set(); // 使用Set存储已选择的文件
+
+        const fileInput = document.getElementById('fileInput');
+        const processButton = document.getElementById('processButton');
+        const loading = document.getElementById('loading');
+        const overlapInput = document.getElementById('overlapInput');
+        const fileList = document.getElementById('fileList');
+
+        fileInput.onchange = function() {
+            // 将新选择的文件添加到Set中
+            Array.from(this.files).forEach(file => {
+                selectedFiles.add(file);
+            });
+            updateFileList();
+            this.value = ''; // 清空input，允许重复选择同一文件
+        };
+
+        function updateFileList() {
+            fileList.innerHTML = Array.from(selectedFiles).map((file, index) => `
+                <li>
+                    ${file.name}
+                    <button class="delete-btn" onclick="removeFile(${index})">×</button>
+                </li>
+            `).join('');
+            processButton.disabled = selectedFiles.size === 0;
+        }
+
+        function removeFile(index) {
+            const files = Array.from(selectedFiles);
+            selectedFiles.delete(files[index]);
+            updateFileList();
+        }
+
+        function resetForm() {
+            fileInput.value = '';
+            overlapInput.value = '50';
+            selectedFiles.clear();
+            updateFileList();
+            loading.style.display = 'none';
+        }
+
+        async function processImage(file) {
+            const image = await loadImage(file);
+            const overlap = parseInt(overlapInput.value) || 0;
+            const aspectRatio = 3/4;
+
+            const sliceHeight = Math.floor(image.width / aspectRatio);
+            const effectiveHeight = sliceHeight - overlap;
+            const numSlices = Math.ceil(image.height / effectiveHeight);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = image.width;
+            canvas.height = sliceHeight;
+            const ctx = canvas.getContext('2d', { alpha: false });
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+
+            const imageSlices = [];
+            for (let i = 0; i < numSlices; i++) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const sourceY = i * effectiveHeight;
+                ctx.drawImage(image,
+                    0, sourceY, image.width, sliceHeight,
+                    0, 0, canvas.width, canvas.height
+                );
+
+                const blob = await new Promise(resolve => {
+                    canvas.toBlob(resolve, 'image/jpeg', 1.0);
+                });
+                imageSlices.push(blob);
+            }
+
+            return imageSlices;
+        }
+
+        processButton.onclick = async function() {
+            if (selectedFiles.size === 0) return;
+
+            loading.style.display = 'block';
+            processButton.disabled = true;
+
+            try {
+                for (let file of selectedFiles) {
+                    const zip = new JSZip();
+                    const slices = await processImage(file);
+
+                    // 直接在根目录添加文件
+                    for (let i = 0; i < slices.length; i++) {
+                        zip.file(`${(i + 1).toString().padStart(3, '0')}.jpg`, slices[i]);
+                    }
+
+                    const zipBlob = await zip.generateAsync({
+                        type: "blob",
+                        compression: "STORE"
+                    });
+
+                    // 使用原始文件名作为zip文件名
+                    const baseFileName = file.name.replace(/\.[^/.]+$/, "");
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(zipBlob);
+                    link.download = `${baseFileName}_slices.zip`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href);
+                }
+            } catch (error) {
+                console.error('处理图片时出错:', error);
+                alert('处理图片时出错，请重试');
+            } finally {
+                loading.style.display = 'none';
+                processButton.disabled = false;
+            }
+        };
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+    </script>
+</body>
+</html>
